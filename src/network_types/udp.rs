@@ -335,6 +335,17 @@ impl UdpStreamBuilder {
                     }
                     sock.set_nonblocking(true)?;
                     sock.bind(&bound_addr.unwrap_or(binding_to).into())?;
+                    // HOPR_INTERNAL_UDP_RCVBUF=<bytes>: the kernel receive buffer of every session UDP socket
+                    // (SO_RCVBUF, bounded by net.core.rmem_max). An exit bridging a WireGuard server into a
+                    // session reads bursts of datagrams through this socket; with the 208 KB default the kernel
+                    // dropped ~1 % of a 4 Mbit/s download's frames here (Udp RcvbufErrors), every one a loss the
+                    // TCP flow inside the tunnel had to repair.
+                    if let Some(bytes) = std::env::var("HOPR_INTERNAL_UDP_RCVBUF").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
+                        match sock.set_recv_buffer_size(bytes) {
+                            Ok(()) => debug!(requested = bytes, got = ?sock.recv_buffer_size(), "UDP socket receive buffer"),
+                            Err(error) => warn!(%error, "UDP socket receive buffer not set"),
+                        }
+                    }
 
                     // Determine the address we bound this socket to, so we can also bind the others
                     let socket_bound_addr = sock
